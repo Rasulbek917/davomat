@@ -1,0 +1,726 @@
+// ---------------------------------------------------------------------------
+// Maktab Davomat — School Attendance Management System
+// PostgreSQL schema (Prisma). See ARCHITECTURE.md for the rationale.
+//
+// Conventions:
+//   * Every tenant-owned row carries `schoolId` so school-level data isolation
+//     can be enforced in a single place (see src/lib/auth/guards.ts).
+//   * Soft deletion via `deletedAt` / `isActive` — records are never hard-deleted
+//     by normal application flows.
+//   * External identifiers are never stored only on the entity; they are also
+//     recorded in `ExternalRef` so imports stay idempotent.
+// ---------------------------------------------------------------------------
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Prisma 7: the connection URL lives in prisma.config.ts (see that file) and is
+// supplied to PrismaClient through a driver adapter at runtime.
+datasource db {
+  provider = "postgresql"
+}
+
+// ------------------------------- Enums -------------------------------------
+
+enum ThemePreference {
+  LIGHT
+  DARK
+  SYSTEM
+}
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+/// Lifecycle of a student's relationship with the school.
+enum StudentStatus {
+  ACTIVE
+  TRANSFERRED
+  GRADUATED
+  INACTIVE
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  TRANSFERRED
+  GRADUATED
+  INACTIVE
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  EXCUSED
+}
+
+/// A school day may have a single full-day register or several sessions.
+enum SessionSlot {
+  FULL_DAY
+  MORNING
+  AFTERNOON
+}
+
+enum AttendanceSessionStatus {
+  DRAFT
+  SUBMITTED
+}
+
+enum IntegrationProvider {
+  EMAKTAB_API
+  CSV_EXCEL
+}
+
+enum SyncStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+enum ReviewStatus {
+  PENDING
+  RESOLVED_CREATED
+  RESOLVED_LINKED
+  IGNORED
+}
+
+/// Lifecycle of a single teacher duty assignment.
+enum DutyAssignmentStatus {
+  PLANNED
+  COMPLETED
+  REPLACED
+  CANCELLED
+}
+
+// ------------------------------ Identity -----------------------------------
+
+model Role {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  nameUz      String
+  description String?
+  /// Granular permission keys, e.g. ["attendance:write", "classes:read"].
+  permissions String[]
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  users       User[]
+
+  @@map("roles")
+}
+
+model School {
+  id         String    @id @default(cuid())
+  code       String    @unique
+  name       String
+  region     String?
+  district   String?
+  address    String?
+  phone      String?
+  email      String?
+  /// Identifier of the school in the external source (e.g. eMaktab).
+  externalId String?
+  isActive   Boolean   @default(true)
+  deletedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  users                   User[]
+  classes                 SchoolClass[]
+  students                Student[]
+  enrollments             Enrollment[]
+  attendanceSessions      AttendanceSession[]
+  attendanceRecords       AttendanceRecord[]
+  employees               EmployeeProfile[]
+  integrations            IntegrationConfig[]
+  syncLogs                SyncLog[]
+  externalRefs            ExternalRef[]
+  reviewItems             ImportReviewItem[]
+  calendarDays            SchoolCalendar[]
+  classSchedules          ClassSchedule[]
+  dutySettings            DutySettings?
+  dutyEligibilities       DutyTeacherEligibility[]
+  dutyAssignments         DutyAssignment[]
+  dutyChanges             DutyChange[]
+  auditLogs               AuditLog[]
+  classTeacherAssignments ClassTeacherAssignment[]
+
+  @@index([externalId])
+  @@index([isActive])
+  @@map("schools")
+}
+
+model User {
+  id                 String    @id @default(cuid())
+  login              String    @unique
+  passwordHash       String
+  firstName          String
+  lastName           String
+  middleName         String?
+  phone              String?
+  avatarPath         String?
+  roleId             String
+  schoolId           String?
+  isActive           Boolean   @default(true)
+  mustChangePassword Boolean   @default(false)
+  lastLoginAt        DateTime?
+  failedLoginCount   Int       @default(0)
+  lockedUntil        DateTime?
+  deletedAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  role                        Role                     @relation(fields: [roleId], references: [id])
+  school                      School?                  @relation(fields: [schoolId], references: [id])
+  sessions                    Session[]
+  preference                  UserPreference?
+  employeeProfile             EmployeeProfile?
+  createdClasses              SchoolClass[]            @relation("ClassTeacher")
+  recordedSessions            AttendanceSession[]      @relation("SessionRecorder")
+  recordedRecords             AttendanceRecord[]       @relation("RecordRecorder")
+  editedRecords               AttendanceRecord[]       @relation("RecordEditor")
+  attendanceChanges           AttendanceChange[]
+  integrations                IntegrationConfig[]
+  syncLogs                    SyncLog[]
+  resolvedReviews             ImportReviewItem[]
+  createdSchedules            ClassSchedule[]          @relation("ScheduleCreator")
+  dutySettingsCreated         DutySettings[]           @relation("DutySettingsCreator")
+  dutyEligibilities           DutyTeacherEligibility[] @relation("DutyEligibilityTeacher")
+  dutyAssignments             DutyAssignment[]         @relation("DutyAssignee")
+  dutyOriginalAssignments     DutyAssignment[]         @relation("DutyOriginalTeacher")
+  dutyCreatedAssignments      DutyAssignment[]         @relation("DutyCreator")
+  dutyUpdatedAssignments      DutyAssignment[]         @relation("DutyUpdater")
+  dutyChanges                 DutyChange[]             @relation("DutyChanger")
+  auditLogs                   AuditLog[]
+  classTeacherAssignments     ClassTeacherAssignment[] @relation("ClassTeacherHistory")
+  classTeacherAssignmentsMade ClassTeacherAssignment[] @relation("ClassTeacherAssigner")
+
+  @@index([schoolId])
+  @@index([roleId])
+  @@index([isActive])
+  @@map("users")
+}
+
+/// Server-side session. Only a hash of the opaque token is stored.
+model Session {
+  id         String    @id @default(cuid())
+  tokenHash  String    @unique
+  userId     String
+  expiresAt  DateTime
+  lastUsedAt DateTime  @default(now())
+  ip         String?
+  userAgent  String?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model UserPreference {
+  id               String          @id @default(cuid())
+  userId           String          @unique
+  theme            ThemePreference @default(SYSTEM)
+  locale           String          @default("uz-Latn")
+  sidebarCollapsed Boolean         @default(false)
+  attendanceSlot   SessionSlot     @default(FULL_DAY)
+  updatedAt        DateTime        @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_preferences")
+}
+
+model EmployeeProfile {
+  id        String    @id @default(cuid())
+  userId    String    @unique
+  schoolId  String
+  position  String
+  hiredAt   DateTime?
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  school School @relation(fields: [schoolId], references: [id])
+
+  @@index([schoolId])
+  @@map("employee_profiles")
+}
+
+// ------------------------------- Academic ----------------------------------
+
+model SchoolClass {
+  id           String    @id @default(cuid())
+  schoolId     String
+  name         String
+  gradeYear    Int
+  academicYear String
+  letter       String?
+  capacity     Int?
+  externalId   String?
+  teacherId    String?
+  /// Current weekly schedule as ISO weekday numbers (1 = Monday ... 7 = Sunday).
+  /// Denormalised for list views; the authoritative history lives in ClassSchedule.
+  workingDays  Int[]     @default([1, 2, 3, 4, 5])
+  isActive     Boolean   @default(true)
+  deletedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  school             School                   @relation(fields: [schoolId], references: [id])
+  teacher            User?                    @relation("ClassTeacher", fields: [teacherId], references: [id])
+  enrollments        Enrollment[]
+  attendanceSessions AttendanceSession[]
+  schedules          ClassSchedule[]
+  teacherHistory     ClassTeacherAssignment[]
+
+  @@unique([schoolId, name, academicYear])
+  @@index([schoolId])
+  @@index([gradeYear])
+  @@map("classes")
+}
+
+model Student {
+  id            String        @id @default(cuid())
+  schoolId      String
+  firstName     String
+  lastName      String
+  middleName    String?
+  /// External student identifier where permitted/available.
+  externalId    String?
+  birthDate     DateTime?     @db.Date
+  gender        Gender?
+  status        StudentStatus @default(ACTIVE)
+  isActive      Boolean       @default(true)
+  guardianName  String?
+  guardianPhone String?
+  note          String?
+  deletedAt     DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  school            School             @relation(fields: [schoolId], references: [id])
+  enrollments       Enrollment[]
+  attendanceRecords AttendanceRecord[]
+
+  @@unique([schoolId, externalId])
+  @@index([schoolId])
+  @@index([lastName, firstName])
+  @@index([isActive])
+  @@map("students")
+}
+
+/// Membership of a student in a class for an academic year.
+model Enrollment {
+  id           String           @id @default(cuid())
+  schoolId     String
+  studentId    String
+  classId      String
+  academicYear String
+  status       EnrollmentStatus @default(ACTIVE)
+  startDate    DateTime         @default(now()) @db.Date
+  endDate      DateTime?        @db.Date
+  isActive     Boolean          @default(true)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  school            School             @relation(fields: [schoolId], references: [id])
+  student           Student            @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  class             SchoolClass        @relation(fields: [classId], references: [id], onDelete: Cascade)
+  attendanceRecords AttendanceRecord[]
+
+  @@unique([studentId, classId, academicYear])
+  @@index([classId])
+  @@index([studentId])
+  @@index([schoolId])
+  @@map("enrollments")
+}
+
+/// School calendar override: which dates are working days.
+model SchoolCalendar {
+  id           String   @id @default(cuid())
+  schoolId     String
+  date         DateTime @db.Date
+  isWorkingDay Boolean  @default(true)
+  note         String?
+  academicYear String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id])
+
+  @@unique([schoolId, date])
+  @@index([schoolId, date])
+  @@map("school_calendar")
+}
+
+// ------------------------------ Attendance ---------------------------------
+
+model AttendanceSession {
+  id           String                  @id @default(cuid())
+  schoolId     String
+  classId      String
+  date         DateTime                @db.Date
+  slot         SessionSlot             @default(FULL_DAY)
+  status       AttendanceSessionStatus @default(DRAFT)
+  note         String?
+  recordedById String?
+  submittedAt  DateTime?
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+
+  school   School             @relation(fields: [schoolId], references: [id])
+  class    SchoolClass        @relation(fields: [classId], references: [id], onDelete: Cascade)
+  recorder User?              @relation("SessionRecorder", fields: [recordedById], references: [id])
+  records  AttendanceRecord[]
+
+  @@unique([classId, date, slot])
+  @@index([schoolId, date])
+  @@index([date])
+  @@map("attendance_sessions")
+}
+
+model AttendanceRecord {
+  id           String           @id @default(cuid())
+  schoolId     String
+  sessionId    String
+  studentId    String
+  enrollmentId String?
+  status       AttendanceStatus
+  reason       String?
+  note         String?
+  recordedById String?
+  updatedById  String?
+  recordedAt   DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  school     School             @relation(fields: [schoolId], references: [id])
+  session    AttendanceSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  student    Student            @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  enrollment Enrollment?        @relation(fields: [enrollmentId], references: [id])
+  recordedBy User?              @relation("RecordRecorder", fields: [recordedById], references: [id])
+  updatedBy  User?              @relation("RecordEditor", fields: [updatedById], references: [id])
+  changes    AttendanceChange[]
+
+  @@unique([sessionId, studentId])
+  @@index([schoolId, status])
+  @@index([studentId])
+  @@map("attendance_records")
+}
+
+/// Append-only log of every change to an attendance record (audit trail).
+model AttendanceChange {
+  id          String            @id @default(cuid())
+  recordId    String
+  changedById String?
+  fromStatus  AttendanceStatus?
+  toStatus    AttendanceStatus
+  fromReason  String?
+  toReason    String?
+  note        String?
+  source      String            @default("MANUAL")
+  changedAt   DateTime          @default(now())
+
+  record    AttendanceRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  changedBy User?            @relation(fields: [changedById], references: [id])
+
+  @@index([recordId])
+  @@index([changedAt])
+  @@map("attendance_changes")
+}
+
+// ------------------------------ Integration --------------------------------
+
+model IntegrationConfig {
+  id                   String              @id @default(cuid())
+  schoolId             String
+  provider             IntegrationProvider
+  name                 String
+  isEnabled            Boolean             @default(false)
+  baseUrl              String?
+  /// AES-256-GCM ciphertext of the credential payload. Never a plain password.
+  credentialsEncrypted String?
+  /// Non-secret hint shown in the UI (e.g. masked login or source file name).
+  credentialHint       String?
+  settings             Json?
+  lastSyncAt           DateTime?
+  lastSyncStatus       SyncStatus?
+  lastSyncMessage      String?
+  createdById          String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  school    School    @relation(fields: [schoolId], references: [id])
+  createdBy User?     @relation(fields: [createdById], references: [id])
+  syncLogs  SyncLog[]
+
+  @@index([schoolId])
+  @@map("integration_configs")
+}
+
+model SyncLog {
+  id                  String              @id @default(cuid())
+  schoolId            String
+  integrationConfigId String?
+  provider            IntegrationProvider
+  source              String
+  status              SyncStatus          @default(PENDING)
+  dryRun              Boolean             @default(false)
+  startedAt           DateTime            @default(now())
+  finishedAt          DateTime?
+  triggeredById       String?
+  classesCreated      Int                 @default(0)
+  classesUpdated      Int                 @default(0)
+  studentsCreated     Int                 @default(0)
+  studentsUpdated     Int                 @default(0)
+  enrollmentsCreated  Int                 @default(0)
+  enrollmentsUpdated  Int                 @default(0)
+  recordsSkipped      Int                 @default(0)
+  errors              Json?
+  summary             String?
+
+  school      School             @relation(fields: [schoolId], references: [id])
+  config      IntegrationConfig? @relation(fields: [integrationConfigId], references: [id])
+  triggeredBy User?              @relation(fields: [triggeredById], references: [id])
+  reviewItems ImportReviewItem[]
+
+  @@index([schoolId, startedAt])
+  @@map("sync_logs")
+}
+
+/// Stable mapping between an external identifier and an internal record.
+model ExternalRef {
+  id         String   @id @default(cuid())
+  schoolId   String
+  source     String
+  entityType String
+  internalId String
+  externalId String
+  checksum   String?
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id])
+
+  @@unique([source, entityType, externalId])
+  @@unique([source, entityType, internalId])
+  @@index([schoolId, entityType])
+  @@map("external_refs")
+}
+
+/// Ambiguous import matches that require a human decision.
+model ImportReviewItem {
+  id           String       @id @default(cuid())
+  schoolId     String
+  syncLogId    String?
+  entityType   String
+  externalId   String?
+  reason       String
+  payload      Json
+  candidates   Json?
+  status       ReviewStatus @default(PENDING)
+  resolvedById String?
+  resolvedAt   DateTime?
+  createdAt    DateTime     @default(now())
+
+  school     School   @relation(fields: [schoolId], references: [id])
+  syncLog    SyncLog? @relation(fields: [syncLogId], references: [id])
+  resolvedBy User?    @relation(fields: [resolvedById], references: [id])
+
+  @@index([schoolId, status])
+  @@map("import_review_items")
+}
+
+// ------------------------------- Schedule -----------------------------------
+
+/// Versioned weekly schedule for a class.
+///
+/// The schedule in force on a given date is the row with the greatest
+/// `effectiveFrom` that is <= that date (and whose `effectiveTo` is null or
+/// >= that date). Keeping versions means a later schedule change never rewrites
+/// the meaning of an older report.
+model ClassSchedule {
+  id            String    @id @default(cuid())
+  schoolId      String
+  classId       String
+  effectiveFrom DateTime  @db.Date
+  effectiveTo   DateTime? @db.Date
+  /// ISO weekday numbers: 1 = Monday ... 7 = Sunday.
+  weekdays      Int[]
+  note          String?
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  school    School      @relation(fields: [schoolId], references: [id])
+  class     SchoolClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+  createdBy User?       @relation("ScheduleCreator", fields: [createdById], references: [id])
+
+  @@index([classId, effectiveFrom])
+  @@index([schoolId, effectiveFrom])
+  @@map("class_schedules")
+}
+
+// --------------------------------- Duty -------------------------------------
+
+/// School-wide duty (navbatchilik) configuration. One row per school.
+model DutySettings {
+  id               String    @id @default(cuid())
+  schoolId         String    @unique
+  title            String    @default("Navbatchilik")
+  startDate        DateTime? @db.Date
+  endDate          DateTime? @db.Date
+  /// Number of teachers on duty per day (1..3).
+  perDay           Int       @default(1)
+  /// ISO weekday numbers on which duty takes place. Deliberately independent
+  /// from class study days.
+  weekdays         Int[]     @default([1, 2, 3, 4, 5, 6])
+  avoidConsecutive Boolean   @default(true)
+  isActive         Boolean   @default(true)
+  createdById      String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  school        School                   @relation(fields: [schoolId], references: [id])
+  createdBy     User?                    @relation("DutySettingsCreator", fields: [createdById], references: [id])
+  eligibilities DutyTeacherEligibility[]
+  assignments   DutyAssignment[]
+
+  @@map("duty_settings")
+}
+
+/// Per-teacher participation and unavailability for duty.
+model DutyTeacherEligibility {
+  id              String    @id @default(cuid())
+  schoolId        String
+  dutySettingsId  String
+  teacherId       String
+  isEligible      Boolean   @default(true)
+  unavailableFrom DateTime? @db.Date
+  unavailableTo   DateTime? @db.Date
+  note            String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  school       School       @relation(fields: [schoolId], references: [id])
+  dutySettings DutySettings @relation(fields: [dutySettingsId], references: [id], onDelete: Cascade)
+  teacher      User         @relation("DutyEligibilityTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+
+  @@unique([dutySettingsId, teacherId])
+  @@index([schoolId])
+  @@index([teacherId])
+  @@map("duty_teacher_eligibilities")
+}
+
+/// Class teacher assignment history (append-only). Current assignment is SchoolClass.teacherId.
+model ClassTeacherAssignment {
+  id           String    @id @default(cuid())
+  schoolId     String
+  classId      String
+  teacherId    String
+  assignedById String?
+  assignedAt   DateTime  @default(now())
+  endedAt      DateTime?
+  endReason    String?
+
+  school     School      @relation(fields: [schoolId], references: [id])
+  class      SchoolClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+  teacher    User        @relation("ClassTeacherHistory", fields: [teacherId], references: [id])
+  assignedBy User?       @relation("ClassTeacherAssigner", fields: [assignedById], references: [id])
+
+  @@index([schoolId])
+  @@index([classId])
+  @@index([teacherId])
+  @@index([assignedAt])
+  @@map("class_teacher_assignments")
+}
+
+/// One teacher's duty on one date.
+model DutyAssignment {
+  id                String               @id @default(cuid())
+  schoolId          String
+  dutySettingsId    String
+  date              DateTime             @db.Date
+  teacherId         String
+  /// Position within the day when several teachers share a duty.
+  slotIndex         Int                  @default(0)
+  status            DutyAssignmentStatus @default(PLANNED)
+  /// Preserved when a teacher is replaced, so history is never lost.
+  originalTeacherId String?
+  note              String?
+  createdById       String?
+  updatedById       String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  school          School       @relation(fields: [schoolId], references: [id])
+  dutySettings    DutySettings @relation(fields: [dutySettingsId], references: [id], onDelete: Cascade)
+  teacher         User         @relation("DutyAssignee", fields: [teacherId], references: [id])
+  originalTeacher User?        @relation("DutyOriginalTeacher", fields: [originalTeacherId], references: [id])
+  createdBy       User?        @relation("DutyCreator", fields: [createdById], references: [id])
+  updatedBy       User?        @relation("DutyUpdater", fields: [updatedById], references: [id])
+  changes         DutyChange[]
+
+  @@unique([dutySettingsId, date, teacherId])
+  @@index([schoolId, date])
+  @@index([teacherId, date])
+  @@map("duty_assignments")
+}
+
+/// Append-only log of duty changes (create / replace / cancel / edit / status).
+model DutyChange {
+  id            String                @id @default(cuid())
+  schoolId      String
+  assignmentId  String
+  changedById   String?
+  action        String
+  fromTeacherId String?
+  toTeacherId   String?
+  fromStatus    DutyAssignmentStatus?
+  toStatus      DutyAssignmentStatus?
+  reason        String?
+  createdAt     DateTime              @default(now())
+
+  school     School         @relation(fields: [schoolId], references: [id])
+  assignment DutyAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  changedBy  User?          @relation("DutyChanger", fields: [changedById], references: [id])
+
+  @@index([assignmentId])
+  @@index([schoolId, createdAt])
+  @@map("duty_changes")
+}
+
+// -------------------------------- Audit ------------------------------------
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String?
+  schoolId    String?
+  action      String
+  entityType  String?
+  entityId    String?
+  summary     String
+  metadata    Json?
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  actor  User?   @relation(fields: [actorUserId], references: [id])
+  school School? @relation(fields: [schoolId], references: [id])
+
+  @@index([schoolId, createdAt])
+  @@index([actorUserId])
+  @@index([action])
+  @@map("audit_logs")
+}
+
+/// Class teacher assignment history (append-only). Current assignment is SchoolClass.teacherId.
