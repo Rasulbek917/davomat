@@ -139,7 +139,7 @@ const ROLE_SPECS = [
     permissions: [
       "employees:manage", "classes:read", "classes:manage", "students:read", "students:manage",
       "attendance:read", "attendance:write", "attendance:correct", "reports:read", "reports:export",
-      "integration:read", "integration:manage", "duty:read", "duty:manage", "audit:read",
+      "integration:read", "integration:manage", "duty:read", "duty:manage", "audit:read", "ai:use",
     ],
     isSystem: true,
   },
@@ -149,7 +149,7 @@ const ROLE_SPECS = [
     description: "Davomat va hisobotlarni nazorat qiladi.",
     permissions: [
       "classes:read", "students:read", "attendance:read", "attendance:write", "attendance:correct",
-      "reports:read", "reports:export", "integration:read", "duty:read", "duty:manage",
+      "reports:read", "reports:export", "integration:read", "duty:read", "duty:manage", "ai:use",
     ],
     isSystem: true,
   },
@@ -157,7 +157,7 @@ const ROLE_SPECS = [
     key: "TEACHER",
     nameUz: "Sinf rahbari / o‘qituvchi",
     description: "O‘ziga biriktirilgan sinflarda davomat yuritadi.",
-    permissions: ["classes:read", "students:read", "attendance:read", "attendance:write", "reports:read", "reports:export", "duty:read"],
+    permissions: ["classes:read", "students:read", "attendance:read", "attendance:write", "reports:read", "reports:export", "duty:read", "ai:use"],
     isSystem: true,
   },
   {

@@ -15,6 +15,14 @@ const serverEnvSchema = z.object({
   UPLOAD_DIR: z.string().default("storage/uploads"),
   APP_TIMEZONE: z.string().default("Asia/Tashkent"),
   EMAKTAB_API_BASE_URL: z.string().optional().default(""),
+  // --- AI assistant (server-side only; never exposed to the client) ---------
+  // Any OpenAI-compatible endpoint works. Empty AI_API_KEY = AI features show a
+  // "not configured" state instead of failing.
+  AI_API_KEY: z.string().optional().default(""),
+  AI_BASE_URL: z.string().optional().default("https://api.openai.com/v1"),
+  AI_MODEL: z.string().optional().default("gpt-4o-mini"),
+  AI_MAX_OUTPUT_TOKENS: z.string().optional().default("900"),
+  AI_DAILY_REQUEST_LIMIT: z.string().optional().default("150"),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

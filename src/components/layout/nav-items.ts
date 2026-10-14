@@ -9,6 +9,7 @@ import {
   Users,
   GraduationCap,
   LayoutDashboard,
+  Sparkles,
   UserCog,
   type LucideIcon,
 } from "lucide-react";
@@ -48,6 +49,10 @@ export const SUPER_ADMIN_NAV: NavConfig = [
     ],
   },
   {
+    section: "Intellekt",
+    items: [{ href: "/admin/ai", label: "AI + eMaktab", icon: Sparkles }],
+  },
+  {
     section: "Tizim",
     items: [
       { href: "/admin/settings", label: "Sozlamalar", icon: Settings },
@@ -74,6 +79,12 @@ export const SCHOOL_NAV: NavConfig = [
       { href: "/dashboard/history", label: "Davomat tarixi", icon: History, permission: PERMISSION.ATTENDANCE_READ },
       { href: "/dashboard/duty", label: "Navbatchilik", icon: CalendarClock, permission: PERMISSION.DUTY_READ },
       { href: "/dashboard/reports", label: "Hisobotlar", icon: BarChart3, permission: PERMISSION.REPORTS_READ },
+    ],
+  },
+  {
+    section: "Intellekt",
+    items: [
+      { href: "/dashboard/ai", label: "AI + eMaktab", icon: Sparkles, permission: PERMISSION.AI_USE },
     ],
   },
   {

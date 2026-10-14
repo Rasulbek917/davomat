@@ -75,4 +75,7 @@ export const AUDIT_ACTIONS = {
   INTEGRATION_SYNC: "integration.sync",
   INTEGRATION_REVIEW_RESOLVED: "integration.review.resolved",
   REPORT_EXPORTED: "report.exported",
+  AI_QUERY: "ai.query",
+  AI_ERROR: "ai.error",
+  EMAKTAB_CONNECT: "integration.emaktab.connect",
 } as const;

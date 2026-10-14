@@ -35,6 +35,12 @@ mavzularni qo‘llab-quvvatlaydi, kompyuter va telefondan birdek qulay ishlaydi.
 - **Xavfsizlik** — parollar `bcrypt` bilan xeshlanadi, sessiya tokeni faqat HMAC
   ko‘rinishida saqlanadi, login uchun rate-limit, o‘zgarishlar auditi,
   cheklangan fayl yuklash, maxfiy kalitlar AES-256-GCM bilan shifrlanadi.
+- **AI yordamchi va eMaktab paneli** — “AI + eMaktab” bo‘limida eMaktab
+  ulanishini boshqarish (login/parol shifrlangan holda, hech qachon qaytarilmaydi),
+  rasmiy fayl importi, sinxronlash natijasi va tarixi hamda davomat bo‘yicha AI
+  tahlil mavjud. AI faqat serverda ishlaydi, real bazadan RBAC bilan
+  cheklangan “tool” qatlami orqali o‘qiydi (yozmaydi), `AI_API_KEY` faqat
+  serverda saqlanadi, so‘rovlar rate-limit qilinadi va auditlanadi.
 
 ## Texnologiyalar
 
@@ -57,6 +63,7 @@ npm install
 copy .env.example .env   # Windows
 # cp .env.example .env   # macOS / Linux
 # .env ichida DATABASE_URL, SESSION_SECRET, CREDENTIAL_ENCRYPTION_KEY ni to‘ldiring
+# AI yordamchi uchun (ixtiyoriy): AI_API_KEY, AI_BASE_URL, AI_MODEL
 
 # 3. Bazani tayyorlash (migratsiya + demo ma’lumotlar)
 npm run setup
@@ -91,10 +98,12 @@ So‘ngra [http://localhost:3000](http://localhost:3000) manzilini oching.
 | `npm run db:migrate` | Migratsiya yaratish/qo‘llash |
 | `npm run db:deploy` | Migratsiyalarni qo‘llash (production) |
 | `npm run db:seed` | Demo ma’lumotlarni yuklash (idempotent) |
+| `npm run db:sync-permissions` | Rollarga yangi ruxsatlarni qo‘shish (masalan `ai:use`) |
 | `npm run db:studio` | Prisma Studio |
 
 ## Hujjatlar
 
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) — arxitektura, rollar, davomat semantikasi
 - [`docs/EMAKTAB_INTEGRATION.md`](./docs/EMAKTAB_INTEGRATION.md) — eMaktab integratsiyasi
+- [`docs/AI_ASSISTANT.md`](./docs/AI_ASSISTANT.md) — AI yordamchi va sozlash
 - [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md) — joylashtirish qo‘llanmasi

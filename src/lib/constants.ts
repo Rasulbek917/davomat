@@ -32,6 +32,7 @@ export const PERMISSION = {
   DUTY_READ: "duty:read",
   DUTY_MANAGE: "duty:manage",
   AUDIT_READ: "audit:read",
+  AI_USE: "ai:use",
   PLATFORM_STATS: "platform:stats",
 } as const;
 
@@ -80,6 +81,7 @@ export const ROLE_DEFINITIONS: RoleDefinition[] = [
       PERMISSION.DUTY_READ,
       PERMISSION.DUTY_MANAGE,
       PERMISSION.AUDIT_READ,
+      PERMISSION.AI_USE,
     ],
     schoolScoped: true,
   },
@@ -98,6 +100,7 @@ export const ROLE_DEFINITIONS: RoleDefinition[] = [
       PERMISSION.INTEGRATION_READ,
       PERMISSION.DUTY_READ,
       PERMISSION.DUTY_MANAGE,
+      PERMISSION.AI_USE,
     ],
     schoolScoped: true,
   },
@@ -113,6 +116,7 @@ export const ROLE_DEFINITIONS: RoleDefinition[] = [
       PERMISSION.REPORTS_READ,
       PERMISSION.REPORTS_EXPORT,
       PERMISSION.DUTY_READ,
+      PERMISSION.AI_USE,
     ],
     schoolScoped: true,
   },

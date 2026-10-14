@@ -1,13 +1,14 @@
 "use client";
 
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
+import Link from "next/link";
 import type { PeriodPreset } from "@/lib/date";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StatCard } from "@/components/ui/stat-card";
 import { PeriodFilter } from "@/components/filters/period-filter";
-import { Users, Gauge, CalendarCheck } from "lucide-react";
+import { Users, Gauge, CalendarCheck, Sparkles } from "lucide-react";
 import { formatPercent } from "@/lib/utils";
 
 export type ClassStudentRanking = {
@@ -34,6 +35,7 @@ export function ClassTeacherDashboard({
   periodFrom,
   periodTo,
   periodPreset,
+  aiHref,
 }: {
   className: string;
   totalStudents: number;
@@ -48,6 +50,8 @@ export function ClassTeacherDashboard({
   periodTo: string;
   periodPreset: PeriodPreset;
   daily: { date: string; label: string; rate: number; recorded: number; isSchoolDay: boolean }[];
+  /** When set, shows the "AI bilan sinfimni tahlil qilish" shortcut. */
+  aiHref?: string;
 }) {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -76,7 +80,16 @@ export function ClassTeacherDashboard({
           <h1 className="text-2xl font-semibold">{className}</h1>
           <p className="text-muted-foreground">Sinf rahbari dashboardi</p>
         </div>
-        <PeriodFilter preset={periodPreset} from={periodFrom} to={periodTo} />
+        <div className="flex flex-wrap items-center gap-2">
+          {aiHref && (
+            <Button asChild variant="outline" size="sm">
+              <Link href={aiHref}>
+                <Sparkles className="h-4 w-4" /> AI bilan sinfimni tahlil qilish
+              </Link>
+            </Button>
+          )}
+          <PeriodFilter preset={periodPreset} from={periodFrom} to={periodTo} />
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
