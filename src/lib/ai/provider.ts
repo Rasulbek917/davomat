@@ -57,12 +57,16 @@ export class AiNotConfiguredError extends Error {
 
 export class AiRequestError extends Error {
   readonly status: number;
+  /** Upstream response slice — server logs / audit only, never sent to the UI. */
   readonly details: string;
-  constructor(message: string, status = 0, details = "") {
+  /** Stable machine-readable code (AI_QUOTA, AI_RATE_LIMIT, AI_UNAUTHORIZED, …). */
+  readonly code: string;
+  constructor(message: string, status = 0, details = "", code = "AI_UPSTREAM") {
     super(message);
     this.name = "AiRequestError";
     this.status = status;
     this.details = details;
+    this.code = code;
   }
 }
 
@@ -111,6 +115,53 @@ function parseToolCalls(value: unknown): AiToolCall[] {
 }
 
 /**
+ * Translate an upstream provider error into a short, user-safe Uzbek message.
+ * The raw body stays in `AiRequestError.details` (server logs / audit only) so
+ * provider internals and account specifics never reach the client.
+ */
+function describeUpstreamError(status: number, body: string): { message: string; code: string } {
+  let parsed: unknown = null;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    parsed = null;
+  }
+  const err = asRecord(asRecord(parsed).error);
+  const type = typeof err.type === "string" ? err.type : "";
+  const code = typeof err.code === "string" ? err.code : "";
+
+  if (type === "insufficient_quota" || code === "insufficient_quota" || code === "credit_balance_exhausted") {
+    return {
+      message:
+        "AI xizmati vaqtincha ishlamayapti: provayder hisobida kredit tugagan. Administratorga murojaat qiling.",
+      code: "AI_QUOTA",
+    };
+  }
+  if (status === 401 || code === "invalid_api_key" || type === "invalid_api_key") {
+    return { message: "AI kaliti noto‘g‘ri yoki bekor qilingan (AI_API_KEY).", code: "AI_UNAUTHORIZED" };
+  }
+  if (status === 429) {
+    return {
+      message: "AI xizmatida so‘rovlar chegarasi oshib ketdi. Birozdan so‘ng qayta urinib ko‘ring.",
+      code: "AI_RATE_LIMIT",
+    };
+  }
+  if (status === 402) {
+    return { message: "AI provayderi to‘lovni talab qilmoqda. Hisobni tekshiring.", code: "AI_QUOTA" };
+  }
+  if (status === 403) {
+    return { message: "AI kaliti bu amal uchun ruxsatga ega emas (403).", code: "AI_FORBIDDEN" };
+  }
+  if (status === 404) {
+    return {
+      message: "AI manzili yoki model topilmadi. AI_BASE_URL va AI_MODEL sozlamalarini tekshiring.",
+      code: "AI_NOT_FOUND",
+    };
+  }
+  return { message: `AI xizmati xato qaytardi (HTTP ${status}).`, code: "AI_UPSTREAM" };
+}
+
+/**
  * Perform a single chat-completion request. Throws `AiNotConfiguredError` when
  * no key is set and `AiRequestError` for transport/upstream failures.
  */
@@ -154,18 +205,16 @@ export async function chatCompletion(input: {
       "AI xizmatiga ulanib bo‘lmadi.",
       0,
       error instanceof Error ? error.message : "Noma’lum tarmoq xatosi.",
+      "AI_UNREACHABLE",
     );
   }
 
   if (!response.ok) {
     const body = await response.text().catch(() => "");
-    // Never surface the raw upstream body to end users; keep a short slice for
-    // server logs only (it contains no credentials on our side).
-    throw new AiRequestError(
-      `AI xizmati xato qaytardi (HTTP ${response.status}).`,
-      response.status,
-      body.slice(0, 400),
-    );
+    // Never surface the raw upstream body to end users; map it to a safe,
+    // actionable message and keep a short slice for server logs only.
+    const described = describeUpstreamError(response.status, body);
+    throw new AiRequestError(described.message, response.status, body.slice(0, 400), described.code);
   }
 
   const json = (await response.json().catch(() => null)) as unknown;

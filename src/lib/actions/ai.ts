@@ -12,7 +12,7 @@ import {
   type ChatTurn,
   type ImportAnalysis,
 } from "@/lib/ai/agent";
-import { AiNotConfiguredError } from "@/lib/ai/provider";
+import { AiNotConfiguredError, AiRequestError } from "@/lib/ai/provider";
 import { assertAiRateLimit } from "@/lib/ai/rate-limit";
 import { requireSchoolPermission } from "@/lib/auth/guards";
 import { ACADEMIC_YEAR_DEFAULT, PERMISSION } from "@/lib/constants";
@@ -57,13 +57,22 @@ async function safeLogAiError(error: unknown): Promise<void> {
     const user = await getCurrentUser();
     if (!user) return;
     const { ip, userAgent } = await requestMeta();
+    const metadata =
+      error instanceof AiRequestError
+        ? {
+            message: error.message,
+            code: error.code,
+            status: error.status,
+            upstream: error.details.slice(0, 400),
+          }
+        : { message: error instanceof Error ? error.message : "Noma’lum xatolik" };
     await recordAudit({
       actorUserId: user.id,
       schoolId: user.schoolId,
       action: AUDIT_ACTIONS.AI_ERROR,
       entityType: "AiRequest",
       summary: "AI so‘rovida xatolik yuz berdi.",
-      metadata: { message: error instanceof Error ? error.message : "Noma’lum xatolik" },
+      metadata,
       ip,
       userAgent,
     });
@@ -121,6 +130,10 @@ export async function aiAskAction(input: unknown): Promise<ActionResult<AiAnswer
     if (error instanceof AiNotConfiguredError) {
       return { ok: false, error: error.message, code: "AI_NOT_CONFIGURED" };
     }
+    if (error instanceof AiRequestError) {
+      await safeLogAiError(error);
+      return { ok: false, error: error.message, code: error.code };
+    }
     await safeLogAiError(error);
     return fail(error);
   }
@@ -176,6 +189,10 @@ export async function aiAnalyzeAction(input: unknown): Promise<ActionResult<AiAn
   } catch (error) {
     if (error instanceof AiNotConfiguredError) {
       return { ok: false, error: error.message, code: "AI_NOT_CONFIGURED" };
+    }
+    if (error instanceof AiRequestError) {
+      await safeLogAiError(error);
+      return { ok: false, error: error.message, code: error.code };
     }
     await safeLogAiError(error);
     return fail(error);
